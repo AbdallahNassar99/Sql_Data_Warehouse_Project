@@ -1,0 +1,91 @@
+/*
+===============================================================================
+DDL Script: Create Gold Views
+===============================================================================
+Script Purpose:
+    This script creates views for the Gold layer in the data warehouse. 
+    The Gold layer represents the final dimension and fact tables (Star Schema)
+
+    Each view performs transformations and combines data from the Silver layer 
+    to produce a clean, enriched, and business-ready dataset.
+
+Usage:
+    - These views can be queried directly for analytics and reporting.
+===============================================================================
+*/
+
+-- =============================================================================
+-- Create Dimension: gold.dim_customers
+-- =============================================================================
+
+if object_id('gold.dim_customer','V') is not null
+Drop view gold.dim_customer;
+go 
+create view gold.dim_customer as
+select 
+ROW_NUMBER() over(order by ci.cst_id) as customer_key,
+ci.cst_id as Customer_id,
+ci.cst_key as Custome_Number,
+ci.cst_firstname as first_name,
+ci.cst_lastname as last_name,
+ci.cst_marital_status as marital_status,
+case when ci.cst_gndr != 'n/a' then ci.cst_gndr
+else coalesce(ca.GEN,'n/a')
+end as gender,
+ci.cst_create_date as create_date ,
+ca.BDATE as birthdate,
+lo.CNTRY as country
+from silver.crm_cust_info ci left join silver.erp_cut_az12 ca
+ on ci.cst_key=ca.CID
+ left join silver.erp_loc_a101 lo
+ on ci.cst_key = lo.CID
+
+
+ -- =============================================================================
+-- Create Dimension: gold.dim_products
+-- =============================================================================
+
+ if OBJECT_ID('gold.dim_product','V') is not null
+ drop view gold.dim_product;
+go 
+create or alter view  gold.dim_product as
+select 
+ROW_NUMBER() over(order by ci.prd_start_dt , ci.prd_key) as product_key,
+ci.prd_id as product_id,
+ci.prd_key as product_number,
+ci.prd_nm as product_name,
+ci.cat_id as category_id,
+er.CAT as category,
+er.SUBCAT as subcategory,
+er.MAINTENANCE as maintenance ,
+ci.prd_cost as product_cost,
+ci.prd_line as product_line,
+ci.prd_start_dt as start_date
+from silver.crm_prd_info ci left join silver.erp_px_cat_g1v2 er
+on ci.cat_id=er.ID
+where prd_end_dt is null
+
+
+-- =============================================================================
+-- Create Fact Table: gold.fact_sales
+-- =============================================================================
+
+if OBJECT_ID('gold.fact_sales','V') is not null
+drop view gold.fact_sales;
+go
+create view gold.fact_sales as
+select 
+sd.sls_ord_num as Order_number,
+dp.product_key,
+dc.customer_key,
+sls_order_d as order_date,
+sls_ship_dt as ship_date,
+sls_due_dt as due_date,
+sls_sales as sales_amount,
+sls_quantity as quantity,
+sls_price as price
+from silver.sales_details sd
+left join gold.dim_customer dc
+on dc.Customer_id=sd.sls_cust_id
+left join gold.dim_product dp
+on dp.product_number = sd.sls_prd_key
